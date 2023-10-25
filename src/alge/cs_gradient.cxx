@@ -37,6 +37,7 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include <chrono>
 
 #if defined(HAVE_MPI)
 #include <mpi.h>
@@ -6891,6 +6892,13 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
   cs_cocg_6_t  *restrict cocgb_s = NULL;
   cs_cocg_6_t *restrict cocg = NULL;
 
+
+  /* Timing the computation */
+
+  std::chrono::high_resolution_clock::time_point start, stop;
+  std::chrono::microseconds compute_time;
+
+
 #if defined(HAVE_CUDA)
   bool accel = (cs_get_device_id() > -1) ? true : false;
 #else
@@ -6903,8 +6911,16 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
 
   BFT_MALLOC(rhs, n_cells_ext, cs_real_33_t);
 
+  cs_real_t *cpu_results;
+  cs_real_t *gpu_results;
+
+  BFT_MALLOC(cpu_results, n_cells_ext*3*3, cs_real_t);
+  BFT_MALLOC(gpu_results, n_cells_ext*3*3, cs_real_t);
+
   /* Compute Right-Hand Side */
   /*-------------------------*/
+
+  start = std::chrono::high_resolution_clock::now();
 #if defined(HAVE_CUDA)
   cs_lsq_vector_gradient_cuda(
     m,
@@ -6919,6 +6935,8 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
     cocg,
     gradv,
     rhs);
+  // memcpy(gpu_results, gradv, n_cells_ext*3*3*sizeof(cs_real_t));
+// #endif 
 #else
   # pragma omp parallel for
   for (cs_lnum_t c_id = 0; c_id < n_cells_ext; c_id++) {
@@ -7069,6 +7087,7 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
     }
   }
 #endif 
+  // memcpy(cpu_results, gradv, n_cells_ext*3*3*sizeof(cs_real_t));
 
   /* Compute gradient on boundary cells */
   /*------------------------------------*/
@@ -7136,6 +7155,11 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
     if (cs_glob_mesh->have_rotation_perio)
       cs_halo_perio_sync_var_tens(m->halo, halo_type, (cs_real_t *)gradv);
   }
+
+  stop = std::chrono::high_resolution_clock::now();
+  compute_time = std::chrono::duration_cast<std::chrono::microseconds>(stop - start);
+  // printf("Gradient computation time %ld us \n", compute_time.count());
+  // results_precision(cpu_results, gpu_results, n_cells_ext*3*3);
 
   BFT_FREE(rhs);
 }
@@ -8466,7 +8490,7 @@ _gradient_vector(const char                     *var_name,
     break;
 
   case CS_GRADIENT_LSQ:
-
+    
     _lsq_vector_gradient(mesh,
                          cs_glob_mesh_adjacencies,
                          fvq,

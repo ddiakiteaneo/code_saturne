@@ -125,6 +125,10 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t        *m,
 
 #endif /* defined(HAVE_CUDA) */
 
+cs_real_t results_precision(cs_real_t *cpu_result, 
+                            cs_real_t *gpu_result, 
+                            cs_lnum_t size);
+
 /*! (DOXYGEN_SHOULD_SKIP_THIS) \endcond */
 
 /*----------------------------------------------------------------------------*/

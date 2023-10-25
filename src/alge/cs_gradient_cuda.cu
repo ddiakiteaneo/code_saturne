@@ -466,10 +466,11 @@ _init_rhs(cs_lnum_t         size,
 
 __global__ static void
 _compute_rhs_lsq_v_i_face(cs_lnum_t            size,
-                          int2      i_group_index,
-                          const cs_lnum_2_t      *i_face_cells,
+                          // int2      i_group_index,
+                          const cs_lnum_t      *cell_cells_idx,
+                          const cs_lnum_t      *i_face_cells,
                           const cs_real_3_t    *cell_f_cen,
-                          cs_real_33_t         *rhs,
+                          cs_real_33_t         *restrict rhs,
                           const cs_real_3_t    *pvar,
                           const cs_real_t         *weight,
                           const cs_real_t      *c_weight)
@@ -479,18 +480,18 @@ _compute_rhs_lsq_v_i_face(cs_lnum_t            size,
   if(c_id >= size){
     return;
   }
-  cs_lnum_t s_id = i_group_index.x;
-  cs_lnum_t e_id = i_group_index.y;
+  cs_lnum_t s_id = cell_cells_idx[c_id];
+  cs_lnum_t e_id = cell_cells_idx[c_id+1];;
   cs_real_t dc[3], fctb[3], ddc, _weight1, _weight2, _denom, _pond, pfac;
   cs_lnum_t c_id1, c_id2;
 
   for(cs_lnum_t index = s_id; index < e_id; index++){
-    c_id1 = i_face_cells[index][0];
-    c_id2 = i_face_cells[index][1];
+    c_id2 = i_face_cells[index];
+    // c_id2 = i_face_cells[index][1];
 
-    dc[0] = cell_f_cen[c_id2][0] - cell_f_cen[c_id1][0];
-    dc[1] = cell_f_cen[c_id2][1] - cell_f_cen[c_id1][1];
-    dc[2] = cell_f_cen[c_id2][2] - cell_f_cen[c_id1][2];
+    dc[0] = cell_f_cen[c_id2][0] - cell_f_cen[c_id][0];
+    dc[1] = cell_f_cen[c_id2][1] - cell_f_cen[c_id][1];
+    dc[2] = cell_f_cen[c_id2][2] - cell_f_cen[c_id][2];
 
     ddc = 1./(dc[0]*dc[0] + dc[1]*dc[1] + dc[2]*dc[2]);
     
@@ -500,17 +501,17 @@ _compute_rhs_lsq_v_i_face(cs_lnum_t            size,
     }
     else{
       _pond = weight[index];
-      _denom = 1. / (  _pond       *c_weight[c_id1]
+      _denom = 1. / (  _pond       *c_weight[c_id]
                                   + (1. - _pond)*c_weight[c_id2]);
-      _weight1 = c_weight[c_id1] * _denom;
+      _weight1 = c_weight[c_id] * _denom;
       _weight2 = c_weight[c_id2] * _denom;
     }
     
     for(cs_lnum_t i = 0; i < 3; i++){
-      pfac = (pvar[c_id2][i] - pvar[c_id1][i]) * ddc;
+      pfac = (pvar[c_id2][i] - pvar[c_id][i]) * ddc;
       for(cs_lnum_t j = 0; j < 3; j++){
         fctb[j] = dc[j] * pfac;
-        rhs[c_id1][i][j] += _weight2 * fctb[j];
+        rhs[c_id][i][j] += _weight2 * fctb[j];
         rhs[c_id2][i][j] += _weight1 * fctb[j];
       }
     }
@@ -522,7 +523,7 @@ _compute_rhs_lsq_v_b_neighbor(cs_lnum_t            size,
                                 const cs_lnum_t      *cell_cells_idx,
                                 const cs_lnum_t      *cell_cells_lst,
                                 const cs_real_3_t    *cell_f_cen,
-                                cs_real_33_t         *rhs,
+                                cs_real_33_t         *restrict rhs,
                                 const cs_real_3_t    *pvar)
 {
   cs_lnum_t c_id1 = blockIdx.x * blockDim.x + threadIdx.x;
@@ -560,11 +561,12 @@ _compute_rhs_lsq_v_b_neighbor(cs_lnum_t            size,
 
 __global__ static void
 _compute_rhs_lsq_v_b_face(cs_lnum_t           size,
-                                int2      b_group_index,
+                                // int2      b_group_index,
+                                const cs_lnum_t      *cell_b_faces_idx,
                                 const cs_lnum_t      *b_face_cells,
                                 const cs_real_3_t    *cell_f_cen,
                                 const cs_real_3_t    *b_face_normal,
-                                cs_real_33_t         *rhs,
+                                cs_real_33_t         *restrict rhs,
                                 const cs_real_3_t    *pvar,
                                 const cs_real_t      *b_dist,
                                 const cs_real_33_t   *coefbv,
@@ -576,8 +578,8 @@ _compute_rhs_lsq_v_b_face(cs_lnum_t           size,
   if(c_id >= size){
     return;
   }
-  cs_lnum_t s_id = b_group_index.x;
-  cs_lnum_t e_id = b_group_index.y;
+  cs_lnum_t s_id = cell_b_faces_idx[c_id];
+  cs_lnum_t e_id = cell_b_faces_idx[c_id+1];
   cs_lnum_t c_id1;
   cs_real_t n_d_dist[3], d_b_dist, pfac, norm, inverse_norm;
 
@@ -618,9 +620,9 @@ _compute_rhs_lsq_v_b_face(cs_lnum_t           size,
 
 __global__ static void
 _compute_gradient_lsq_v(cs_lnum_t           size,
-                        cs_real_33_t        *gradv,
-                        cs_real_33_t        *rhs,
-                        cs_cocg_6_t         *cocg)
+                        cs_real_33_t        *restrict gradv,
+                        cs_real_33_t        *restrict rhs,
+                        cs_cocg_6_t         *restrict cocg)
 {
   size_t c_id = blockIdx.x * blockDim.x + threadIdx.x;
   if (c_id >= size) 
@@ -1229,7 +1231,7 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   const cs_lnum_t *restrict b_face_cells
     = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(m->b_face_cells);
   const cs_lnum_t *restrict cell_cells_idx
-    = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(m->cell_cells_idx);
+    = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_cells_idx);
   const cs_lnum_t *restrict cell_cells_lst
     = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(m->cell_cells_lst);
   const int n_i_groups = m->i_face_numbering->n_groups;
@@ -1247,8 +1249,13 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   b_group_index.x = b_group_index_raw[0];
   b_group_index.y = b_group_index_raw[1];
 
+  // printf("cell_cells_idx: %d\n", madj->cell_cells_idx[n_cells-2]);
+  // printf("cell_cells_idx: %d\n", madj->cell_cells_idx[n_cells-1]);
+
   const cs_lnum_t *restrict cell_cells
     = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_cells);
+    const cs_lnum_t *restrict cell_b_faces_idx
+    = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_b_faces_idx);
   const cs_real_3_t *restrict cell_cen
     = (const cs_real_3_t *restrict)cs_get_device_ptr_const_pf(fvq->cell_cen);
   const cs_real_3_t *restrict cell_f_cen
@@ -1283,11 +1290,14 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   error = cudaEventSynchronize(start);
 
   _init_rhs<<<gridsize_ext, blocksize, 0, stream1>>>
-    (n_cells_ext, rhs_d);
+    (n_cells_ext, 
+     rhs_d);
 
   error = cudaEventRecord(stop, NULL);
 	error = cudaEventSynchronize(stop);
 	error = cudaEventElapsedTime(&msecTotal, start, stop);
+
+  // printf("Init execution time %f ms\n", msecTotal);
 
   bool status = false;
   cs_lnum_t count_nan = 0, count_inf = 0;
@@ -1297,8 +1307,7 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   // if(status)
   //   printf("Nan found in rhs after init kernel");
 
-  // printf("Init execution time %f\n", msecTotal);
-  // printf("n_group: %d n_thread: %d n_group[0]: %d n_group[1]: %d\n", m->b_face_numbering->n_groups, m->b_face_numbering->n_threads, m->b_face_numbering->group_index[0], m->b_face_numbering->group_index[1]);
+  // printf("n_group: %d n_thread: %d n_group[0]: %d n_group[1]: %d\n", m->i_face_numbering->n_groups, m->i_face_numbering->n_threads, m->i_face_numbering->group_index[0], m->i_face_numbering->group_index[1]);
 
   // for(cs_lnum_t id = 0; id < n_cells_ext; id++){
   //   for(cs_lnum_t i = 0; i < 3; i++){
@@ -1327,15 +1336,26 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   error = cudaEventSynchronize(start);
   
   _compute_rhs_lsq_v_i_face<<<gridsize, blocksize, 0, stream1>>>
-      (n_cells, i_group_index, i_face_cells, cell_f_cen, rhs_d, pvar_d, weight, c_weight);
+      (n_cells, 
+       cell_cells_idx, 
+       cell_cells, 
+       cell_f_cen, 
+       rhs_d, 
+       pvar_d, 
+       weight, 
+       c_weight);
 
   error = cudaEventRecord(stop, NULL);
 	error = cudaEventSynchronize(stop);
 	msecTotal = 0.0f;
 	error = cudaEventElapsedTime(&msecTotal, start, stop);
 
-  // isnan_cuda<<<gridsize_ext, blocksize, 0, stream1>>>
-  //   (n_cells_ext, rhs_d, status);
+  // if (rhs_d != NULL) {
+  //   size_t size = n_cells_ext * sizeof(cs_real_t) * 3 * 3;
+  //   cs_cuda_copy_d2h(rhs, rhs_d, size);
+  // }
+  // else
+  //   cs_sync_d2h(rhs);
 
   // count_nan = 0; count_inf = 0;
   // for(cs_lnum_t id = 0; id < n_cells_ext; id++){
@@ -1365,12 +1385,19 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
     error = cudaEventRecord(start, NULL);
     error = cudaEventSynchronize(start);
     _compute_rhs_lsq_v_b_neighbor<<<gridsize, blocksize, 0, stream1>>>
-      (n_cells, cell_cells_idx, cell_cells_lst, cell_f_cen, rhs_d, pvar_d);
+      (n_cells, 
+       cell_cells_idx, 
+       cell_cells_lst, 
+       cell_f_cen, 
+       rhs_d, 
+       pvar_d);
   
     error = cudaEventRecord(stop, NULL);
     error = cudaEventSynchronize(stop);
     msecTotal = 0.0f;
     error = cudaEventElapsedTime(&msecTotal, start, stop);
+
+    // printf("Boundary neighbor execution time %f ms\n", msecTotal);
   }
 
   error = cudaEventCreate(&start);
@@ -1380,37 +1407,31 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   error = cudaEventRecord(start, NULL);
   error = cudaEventSynchronize(start);
 
-  _compute_rhs_lsq_v_b_face<<<gridsize, blocksize, 0, stream1>>>
-      (n_cells, b_group_index, b_face_cells, cell_f_cen, b_face_normal, rhs_d, pvar_d, b_dist, coefb_d, coefa_d, inc);
+  _compute_rhs_lsq_v_b_face<<<gridsize_bf, blocksize, 0, stream1>>>
+      (n_cells, 
+       cell_b_faces_idx, 
+       b_face_cells, 
+       cell_f_cen, 
+       b_face_normal, 
+       rhs_d, 
+       pvar_d, 
+       b_dist, 
+       coefb_d, 
+       coefa_d, 
+       inc);
 
   error = cudaEventRecord(stop, NULL);
   error = cudaEventSynchronize(stop);
   msecTotal = 0.0f;
   error = cudaEventElapsedTime(&msecTotal, start, stop);
 
-    
-  if (rhs_d != NULL) {
-    size_t size = n_cells_ext * sizeof(cs_real_t) * 3 * 3;
-    cs_cuda_copy_d2h(rhs, rhs_d, size);
-  }
-  else
-    cs_sync_d2h(rhs);
+  // printf("Boundary face execution time %f ms\n", msecTotal);
 
   // /* Compute gradient */
   // /*------------------*/
 
-  // void *_grad_d = NULL;
   cs_real_33_t *grad_d = NULL;
   CS_CUDA_CHECK(cudaMalloc(&grad_d, n_cells * sizeof(cs_real_33_t)));
-
-  // if (cs_check_device_ptr(gradv) == CS_ALLOC_HOST) {
-  //   size_t size = n_cells * sizeof(cs_real_t) * 3 * 3;
-  //   CS_CUDA_CHECK(cudaMalloc(&_grad_d, size));
-  //   grad_d = (cs_real_33_t *)_grad_d;
-  // }
-  // else {
-  //   grad_d = (cs_real_33_t *)cs_get_device_ptr((void *)gradv);
-  // }
 
   error = cudaEventCreate(&start);
   error = cudaEventCreate(&stop);
@@ -1420,19 +1441,24 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   error = cudaEventSynchronize(start);
 
   _compute_gradient_lsq_v<<<gridsize, blocksize, 0, stream1>>>
-    (n_cells, grad_d, rhs_d, cocg_d);
+    (n_cells, 
+     grad_d, 
+     rhs_d, 
+     cocg_d);
 
   error = cudaEventRecord(stop, NULL);
   error = cudaEventSynchronize(stop);
   msecTotal = 0.0f;
   error = cudaEventElapsedTime(&msecTotal, start, stop);
 
+  // printf("ncell: %f ncellext: %f\n", n_cells, n_cells_ext);
+
   cudaStreamSynchronize(stream1);
   cudaStreamDestroy(stream1);
 
   /* Sync to host */
   if (grad_d != NULL) {
-    size_t size = n_cells_ext * sizeof(cs_real_t) * 3 * 3;
+    size_t size = n_cells * sizeof(cs_real_t) * 3 * 3;
     cs_cuda_copy_d2h(gradv, grad_d, size);
   }
   else
@@ -1471,4 +1497,19 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   
 }
 
-// cs_real_t results_precision(cs_real_t *cpu_result, cs_real_t *gpu_result, )
+cs_real_t results_precision(cs_real_t *cpu_result, cs_real_t *gpu_result, cs_lnum_t size)
+{
+  cs_real_t mse, rmse;
+  mse = 0.0;
+  rmse = 0.0;
+  for(cs_lnum_t i = 0; i < size; i++){
+    mse += (cpu_result[i] - gpu_result[i])*(cpu_result[i] - gpu_result[i]);
+    printf("%f = %f, %d\n", cpu_result[i], gpu_result[i], size);
+  }
+  rmse = sqrt(mse/size);
+
+  // if(rmse > 1.0e-6){    
+  //   printf("Root mean square error %.9f\n", rmse);
+  //   printf("\nVerification: %s\n", "FAIL");
+  // }
+}
