@@ -7166,8 +7166,8 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
   for (cs_lnum_t c_id = 0; c_id < n_cells; c_id++) {
     for (cs_lnum_t i = 0; i < 3; i++) {
       for (int j = 0; j < 3; ++j) {
-        auto cpu  = gradv_cpu[c_id][i][j];
-        auto cuda = gradv[c_id][i][j];
+        auto cpu  = rhs[c_id][i][j];
+        auto cuda = rhs_cuda[c_id][i][j];
 
         if (fabs(cpu - cuda) / fmax(fabs(cpu), 1e-6) > 1e-12) {
           printf("DIFFERENCE @%d-%d-%d: CPU = %a\tCUDA = %a\n|CPU - CUDA| = %a\t|CPU - CUDA|ulp = %a\n", c_id, i, j, cpu, cuda, fabs(cpu - cuda), cs_diff_ulp(cpu, cuda));

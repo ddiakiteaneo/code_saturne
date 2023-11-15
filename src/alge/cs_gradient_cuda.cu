@@ -30,6 +30,7 @@
 #include "cs_gradient_lsq_vector_gather.cuh"
 #include "cs_gradient_lsq_vector_gather_v2.cuh"
 #include "cs_gradient_lsq_vector_gather_v3.cuh"
+#include "cs_gradient_lsq_vector_hybrid.cuh"
 #include "cs_gradient_lsq_vector_v2.cuh"
 #include "cs_gradient_lsq_vector_v3.cuh"
 #include "cs_gradient_priv.h"
@@ -869,6 +870,9 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   const cs_lnum_t n_b_faces   = m->n_b_faces;
   const cs_lnum_t n_i_faces   = m->n_i_faces;
 
+  cs_mesh_adjacencies_update_cell_i_faces();
+  assert(madj->cell_i_faces);
+
   cs_real_t *pvar_copy;
   pvar_copy = (cs_real_t *) malloc(n_cells * sizeof(cs_real_3_t));
   
@@ -953,8 +957,8 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
     = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_b_faces_idx);
   const cs_lnum_t *restrict cell_b_faces
     = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_b_faces);
-  const cs_lnum_t *restrict cell_i_faces
-    = (const cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_i_faces);
+  cs_lnum_t *restrict cell_i_faces
+    = (cs_lnum_t *restrict)cs_get_device_ptr_const_pf(madj->cell_i_faces);
   const short int *restrict cell_i_faces_sgn
     = (const short int *restrict)cs_get_device_ptr_const_pf(madj->cell_i_faces_sgn);
   const int n_i_groups = m->i_face_numbering->n_groups;
@@ -1004,6 +1008,11 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   // _init_rhs_v3<<<gridsize_ext, blocksize, 0, stream>>>
   //   (n_cells_ext*3,
   //    rhs_test_d);
+  cs_real_33_t *restrict fctb    = nullptr;
+  const cs_lnum_t n_cells_i_face = (madj->cell_cells_idx[n_cells]);
+  CS_CUDA_CHECK(cudaMallocAsync((void **)&fctb, n_i_faces * sizeof(cs_real_33_t), stream));
+  CS_CUDA_CHECK(cudaMallocAsync((void **)&cell_i_faces, n_cells_i_face * sizeof(cs_lnum_t), stream));
+  CS_CUDA_CHECK(cudaMemcpyAsync(cell_i_faces, madj->cell_i_faces, n_cells_i_face * sizeof(cs_lnum_t), cudaMemcpyHostToDevice, stream));
 
   CS_CUDA_CHECK(cudaEventRecord(init, stream));
 	
@@ -1019,14 +1028,14 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   //      weight, 
   //      c_weight);
 
-  _compute_rhs_lsq_v_i_face_cf<<<gridsize_if, blocksize, 0, stream>>>
-      (n_i_faces,
-       i_face_cells,
-       cell_f_cen,
-       rhs_d,
-       pvar_d,
-       weight,
-       c_weight);
+  // _compute_rhs_lsq_v_i_face_cf<<<gridsize_if, blocksize, 0, stream>>>
+  //     (n_i_faces,
+  //      i_face_cells,
+  //      cell_f_cen,
+  //      rhs_d,
+  //      pvar_d,
+  //      weight,
+  //      c_weight);
 
   //_compute_rhs_lsq_v_i_face_v2<<<gridsize_if, blocksize, 0, stream>>>
   //    (n_i_faces,
@@ -1075,19 +1084,39 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   //     weight, 
   //     c_weight);
   
-  _compute_rhs_lsq_v_i_face_gather_v4<<<gridsize, blocksize, 0, stream>>>
-      (n_cells,
-       cell_cells_idx,
-       cell_cells,
-       cell_i_faces,
-       cell_i_faces_sgn,
-       cell_f_cen, 
-       rhs_d, 
-       pvar_d, 
-       weight, 
-       c_weight);
+  // _compute_rhs_lsq_v_i_face_gather_v4<<<gridsize, blocksize, 0, stream>>>
+  //     (n_cells,
+  //      cell_cells_idx,
+  //      cell_cells,
+  //      cell_i_faces,
+  //      cell_i_faces_sgn,
+  //      cell_f_cen, 
+  //      rhs_d, 
+  //      pvar_d, 
+  //      weight, 
+  //      c_weight);
+
+  _compute_rhs_lsq_v_i_face_step1<<<gridsize_if, blocksize, 0, stream>>>(
+    n_i_faces,
+    i_face_cells,
+    cell_f_cen,
+    fctb,
+    pvar_d,
+    weight,
+    c_weight
+  );
 
   CS_CUDA_CHECK(cudaEventRecord(i_faces, stream));
+
+  _compute_rhs_lsq_v_i_face_step2_v2<<<gridsize*9, blocksize, 0, stream>>>(
+    n_cells,
+    cell_cells_idx,
+    cell_cells,
+    cell_i_faces,
+    fctb,
+    rhs_d,
+    c_weight
+  );
 
   if(halo_type == CS_HALO_EXTENDED && cell_cells_idx != NULL){
 
@@ -1190,11 +1219,14 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
      cocg_d);
 
   CS_CUDA_CHECK(cudaEventRecord(gradient, stream));
+  CS_CUDA_CHECK(cudaFreeAsync(cell_i_faces, stream));
+  CS_CUDA_CHECK(cudaFreeAsync(fctb, stream));
 
   // /* Sync to host */
   if (grad_d != NULL) {
     size_t size = n_cells * sizeof(cs_real_t) * 3 * 3;
     cs_cuda_copy_d2h(gradv, grad_d, size);
+    cs_cuda_copy_d2h(rhs, rhs_d, n_cells * sizeof(cs_real_33_t));
   }
   else
     cs_sync_d2h(gradv);
@@ -1253,7 +1285,6 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   CS_CUDA_CHECK(cudaFree(grad_d));
   CS_CUDA_CHECK(cudaFree(gradv_test_d));
   CS_CUDA_CHECK(cudaFree(pvar_d_1d));
-  
 }
 
 // cs_real_t results_precision(cs_real_t *cpu_result, cs_real_t *gpu_result, )
