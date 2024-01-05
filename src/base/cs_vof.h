@@ -331,6 +331,15 @@ cs_cavitation_parameters_t *
 cs_get_glob_cavitation_parameters(void);
 
 /*----------------------------------------------------------------------------*/
+/*
+ * \param[in]     iterns        Navier-Stokes iteration number
+ */
+/*----------------------------------------------------------------------------*/
+
+void
+cs_vof_solve_void_fraction(int  iterns);
+
+/*----------------------------------------------------------------------------*/
 
 END_C_DECLS
 

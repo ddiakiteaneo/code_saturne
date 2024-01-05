@@ -75,7 +75,8 @@ typedef struct {
 
   int     iic;                     /*!< rank of C in gas composition (base 1) */
 
-  double  hinfue;                  /*! input mass enthalpy for fuel */
+  double  hinfue;                  /*!< input mass enthalpy for fuel */
+  double  tinfue;                  /*!< input temperature for fuel en K */
 
   double  xsoot;                   /*!< soot fraction production (isoot = 0) */
   double  rosoot;                  /*!< soot density */
@@ -96,6 +97,11 @@ typedef struct {
   /*! Mixing rate at the stoichiometry */
   double fs[CS_COMBUSTION_GAS_MAX_GLOBAL_REACTIONS];
 
+  /*! cpgazg[j][i] is the massic calorific capacity
+      (J/kg/K) of the i-th global species at temperature */
+  double cpgazg[CS_COMBUSTION_MAX_TABULATION_POINTS]
+               [CS_COMBUSTION_GAS_MAX_GLOBAL_SPECIES];
+
 } cs_combustion_gas_model_t;
 
 /*! Combustion model parameters structure */
@@ -112,6 +118,8 @@ typedef struct {
 
   int     n_reactions;               /*!< number of global reactions
                                       *   in gas phase */
+
+  int     n_tab_points;              /*!< number of tabulation points */
 
   int     idrift;                    /*!< drift (0: off, 1: on) */
 
@@ -135,9 +143,12 @@ typedef struct {
                                        for gas or coal combustion
                                        (\ref diffusivity_ref is automatically set
                                        to \ref diftl0 for the enthalpy). */
+  double  pcigas;                    /*!< combustible reaction enthalpy
+                                       (Lower Calorific Value)*/
   double  xco2;                      /*!< molar coefficient of CO2 */
   double  xh2o;                      /*!< molar coefficient of H2O */
   double  hinoxy;                    /*!< input mass enthalpy for the oxidant */
+  double  tinoxy;                    /*! input temperature for oxydant */
 
   /*! molar mass of an elementary gas component */
   double  wmole[CS_COMBUSTION_GAS_MAX_ELEMENTARY_COMPONENTS];
@@ -153,6 +164,9 @@ typedef struct {
 
   /*! composition of CO2 oxidants */
   double oxyco2[CS_COMBUSTION_MAX_OXYDANTS];
+
+  /*! temperature in K */
+  double th[CS_COMBUSTION_MAX_TABULATION_POINTS];
 
 } cs_combustion_model_t;
 

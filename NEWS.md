@@ -1,6 +1,20 @@
 Master (not on release branches yet)
 ------------------------------------
 
+### Numerics:
+
+- Reshape the interface with the MUMPS library (sparse direct solver)
+  to make the usage of common MUMPS options easier. Take benefit from
+  optimizations available in the latest 5.6.2 version.
+
+### User changes:
+
+- Compressible flows: remove uscfx1 and uscfx2 user-defined functions.
+  Standard functions such as cs_user_parameters can be used instead.
+
+Release 8.1.0 (2023-12-13)
+--------------------------
+
 ### Physical modeling
 
 - Remove obsolete and experimental heavy fuel combustion model
@@ -19,6 +33,11 @@ Master (not on release branches yet)
   existing one related to coal combustion.
 
 ### User changes:
+
+- GUI: add access to various "per variable" equation parameters.
+  * Handling of convection schemes is revamped, allowing selection
+    of "true SOLU" (with upwind gradient), blended, and TVD/NVD schemes.
+  * Most individual gradient options are now available in a new tab.
 
 - Add high-level objects to handle open (inlet/outlet) boundary conditions
   in the general boundary conditions mechanism.
@@ -48,6 +67,12 @@ Master (not on release branches yet)
   on interior faces or interior face centers.
   * The "per cell" and "per vertex" maxima are removed.
 
+- Modifications in the way to set MUMPS solvers using cs_sles_param_t
+  structure. Advanced settings can now be set thanks to the two functions
+  cs_param_sles_mumps() and cs_param_sles_mumps_advanced(). More advanced
+  settings can still be specified using the user-defined function
+  cs_user_sles_mumps_hook
+
 ### Numerics:
 
 - Use local fixed-point algorithm for vector and tensor least-squares
@@ -76,6 +101,10 @@ Master (not on release branches yet)
   but it seems that Star-CCM+ 2022 uses it.
 
 - Preprocessor: fix reading of polygons in MED files, broken in v7.3.
+
+- Fix numerical settings for Navier-Stokes problems with CDO schemes. User
+  modifications may not be taken into account and one remains to the default
+  settings (e.g. Hodge parameters for the viscous term)
 
 Release 8.0.0 (2023-06-30)
 --------------------------

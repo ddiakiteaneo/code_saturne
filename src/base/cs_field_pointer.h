@@ -170,6 +170,7 @@ typedef enum {
 
   CS_ENUMF_(rad_energy),   /*!< Radiative energy */
   CS_ENUMF_(rad_q),        /*!< Radiative flux */
+  CS_ENUMF_(radiance),     /*!< (spectral) radiance field */
 
   CS_ENUMF_(rad_est),      /*!< Radiative flux explicit source term */
   CS_ENUMF_(rad_ist),      /*!< Radiative flux implicit source term */
@@ -232,6 +233,9 @@ typedef enum {
   CS_ENUMF_(lift),           /*!< Lift coefficient */
   CS_ENUMF_(disp_t),         /*!< Turbulent dispersion */
   CS_ENUMF_(surf_tens),      /*!< Surface tension */
+  CS_ENUMF_(sl_corr),        /*!< Free surface correction weight for GLIM */
+  CS_ENUMF_(fi),             /*!< field_a vol_f weight for GLIM */
+  CS_ENUMF_(fj),             /*!< field_b vol_f weight for GLIM */
   CS_ENUMF_(drift_vel),      /*!< Particles drift velocity */
   CS_ENUMF_(yplus),          /*!< Wall distance: y+ */
   CS_ENUMF_(vel_mean),       /*!< Mean velocity (for dispersed phases) */

@@ -79,24 +79,6 @@ void CS_PROCF (matrix, MATRIX)
  cs_real_t         xa[]
 );
 
-/*----------------------------------------------------------------------------
- * Fortran wrapper to cs_matrix_time_step
- *----------------------------------------------------------------------------*/
-
-void CS_PROCF (matrdt, MATRDT)
-(
- const int        *const iconvp,
- const int        *const idiffp,
- const int        *const isym,
- const cs_real_t         coefbp[],
- const cs_real_t         cofbfp[],
- const cs_real_t         i_massflux[],
- const cs_real_t         b_massflux[],
- const cs_real_t         i_visc[],
- const cs_real_t         b_visc[],
- cs_real_t               da[]
-);
-
 /*=============================================================================
  * Public function prototypes
  *============================================================================*/

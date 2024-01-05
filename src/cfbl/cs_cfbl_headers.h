@@ -29,6 +29,7 @@
  * Local headers
  *----------------------------------------------------------------------------*/
 
+#include "cs_cf_energy.h"
 #include "cs_cf_model.h"
 #include "cs_cf_thermo.h"
 

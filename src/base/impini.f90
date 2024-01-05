@@ -2,7 +2,7 @@
 
 ! This file is part of code_saturne, a general-purpose CFD tool.
 !
-! Copyright (C) 1998-2023 EDF S.A.
+! Copyright (C) 1998-2024 EDF S.A.
 !
 ! This program is free software; you can redistribute it and/or modify it under
 ! the terms of the GNU General Public License as published by the Free Software
@@ -285,31 +285,6 @@ write(nfecra,9900)
 '       KDRIFT = ', e14.5,    ' (Diffusion effect coeff.     )',/,&
 '       CDRIFT = ', e14.5,    ' (Drift flux coeff.           )',/)
 
-
-! --- Compressible
-
-if (ippmod(icompf).ge.0) then
-  write(nfecra,2700)
-  write(nfecra,2710) icv, iviscv, viscv0, icfgrp
-
-  write(nfecra,9900)
-
-endif
-
- 2700 format(                                                     &
-                                                                /,&
-' ** COMPRESSIBLE: additional data',                            /,&
-'    ------------',                                             /)
- 2710 format(                                                     &
-' --- Continuous phase :',                                      /,&
-'       ICV    = ',4x,i10,    ' (0: Cv cst; 1: variable      )',/,&
-'       IVISCV = ',4x,i10,    ' (0: kappa cst; 1: variable',    /,&
-'                                kappa: volume viscosity',      /,&
-'                                in kg/(m.s)                 )',/,&
-'       VISCV0 = ',e14.5,     ' (kappa value if constant     )',/,&
-'       ICFGRP = ',4x,i10,    ' (1: pressure BC with dominant', /,&
-'                                hydrostatic effect          )',/)
-
 !===============================================================================
 ! 4. DISCRETISATION DES EQUATIONS
 !===============================================================================
@@ -323,7 +298,9 @@ if (idtvar.ge.0) then
 
 !   - Coefficient de relaxation de la masse volumique
 
-  if (ippmod(iphpar).ge.2.and.ippmod(ieljou).lt.0.and.ippmod(ielarc).lt.0) then
+  if (ippmod(icod3p).ge.0 .or. ippmod(islfm).ge.0 .or. &
+      ippmod(icoebu).ge.0 .or. ippmod(icolwc).ge.0 .or. &
+      ippmod(iccoal).ge.0) then
     write(nfecra,3050) srrom
   endif
 

@@ -423,7 +423,8 @@ cs_boundary_conditions_type(bool  init,
 
   /* ifrslb = closest free standard outlet face to xyzp0 (icodcl not modified)
      (or closest free inlet)
-     itbslb = max of ifrslb on all ranks, standard outlet face presence indicator */
+     itbslb = max of ifrslb on all ranks,
+     standard outlet face presence indicator */
 
   /* Even when the user has not chosen xyzp0 (and it is thus at the
      origin), we choose the face whose center is closest to it, so
@@ -1280,7 +1281,7 @@ cs_boundary_conditions_type(bool  init,
            _("Error: incorrect or incomplete boundary conditions\n"
              "======\n\n"
              "At least one open boundary face declared as inlet (or outlet)\n"
-             "with prescribed velocity for which the velocity value of \"%s\"\n"
+             "with prescribed velocity for which the value of \"%s\"\n"
              "has not been specified (Dirichlet condition).\n"),
            cs_field_by_id(err_flags[1])->name);
 

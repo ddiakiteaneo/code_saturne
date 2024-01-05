@@ -1,12 +1,12 @@
-#ifndef __CS_RAD_TRANSFER_PROPERTY_FIELDS__
-#define __CS_RAD_TRANSFER_PROPERTY_FIELDS__
+#ifndef __CS_SYMMETRY_FACES_FILTER_H__
+#define __CS_SYMMETRY_FACES_FILTER_H__
 
 /*============================================================================
- * Radiation solver operations.
+ * Filter symmetry faces whose effects cancel out
  *============================================================================*/
 
 /*
-  This file is part of code_saturne, a general-purpose CFD tool.
+  This file is part of Code_Saturne, a general-purpose CFD tool.
 
   Copyright (C) 1998-2023 EDF S.A.
 
@@ -27,20 +27,43 @@
 
 /*----------------------------------------------------------------------------*/
 
+#include "cs_defs.h"
+
 /*----------------------------------------------------------------------------
  *  Local headers
  *----------------------------------------------------------------------------*/
+
+#include "cs_base.h"
+#include "cs_mesh.h"
+#include "cs_mesh_quantities.h"
+
+/*----------------------------------------------------------------------------
+ *  Header for the current file
+ *----------------------------------------------------------------------------*/
+
+#include "cs_symmetry_faces_filter.h"
 
 /*----------------------------------------------------------------------------*/
 
 BEGIN_C_DECLS
 
 /*=============================================================================
- * Local Macro definitions
+ * Additional Doxygen documentation
  *============================================================================*/
 
-/*============================================================================
- * Type definition
+/*!
+ * \file cs_symmetry_faces_filter.c
+ * \brief Filter symmetry faces whose effects cancel out
+ */
+
+/*! \cond DOXYGEN_SHOULD_SKIP_THIS */
+
+/*=============================================================================
+ * Local macros
+ *============================================================================*/
+
+/*=============================================================================
+ * Local type definitions
  *============================================================================*/
 
 /*============================================================================
@@ -48,24 +71,37 @@ BEGIN_C_DECLS
  *============================================================================*/
 
 /*============================================================================
- * Public function prototypes for Fortran API
+ * Private function definitions
  *============================================================================*/
 
-/*=============================================================================
- * Public function prototypes
+/*! (DOXYGEN_SHOULD_SKIP_THIS) \endcond */
+
+/*============================================================================
+ * Public function definitions
  *============================================================================*/
 
 /*----------------------------------------------------------------------------*/
 /*!
- * \brief Create property fields for radiative solver
+ * \brief Filter selected faces whose effects should cancel out.
+ *
+ * This function simply checks if the sum of associated cell face normals
+ * cancels out, and deselects faces for which this is not verified..
+ *
+ * \param[in]       m          pointer to mesh
+ * \param[in]       mq         pointer to mesh quantities
+ * \param[in, out]  n_faces    number of selected boundary faces
+ * \param[in, out]  face_ids   ids of selected boundary faces
  */
 /*----------------------------------------------------------------------------*/
 
 void
-cs_rad_transfer_prp(void);
+cs_symmetry_faces_filter_cancel(const cs_mesh_t             *m,
+                                const cs_mesh_quantities_t  *mq,
+                                cs_lnum_t                   *n_faces,
+                                cs_lnum_t                    face_ids[]);
 
 /*----------------------------------------------------------------------------*/
 
 END_C_DECLS
 
-#endif /* __CS_RAD_TRANSFER_PROPERTY_FIELDS__ */
+#endif /* __CS_SYMMETRY_FACES_FILTER__ */
