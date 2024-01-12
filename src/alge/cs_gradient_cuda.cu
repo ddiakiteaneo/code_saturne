@@ -1838,7 +1838,7 @@ cs_reconstruct_vector_gradient_cuda(const cs_mesh_t              *m,
   //                               b_face_cells);
 
 
-  // _compute_reconstruct_v_b_face_v2<<<get_gridsize(n_b_faces, blocksize) * 3, blocksize, 0, stream>>>
+  // _compute_reconstruct_v_b_face_v2<<<get_gridsize(n_b_faces * 3, blocksize), blocksize, 0, stream>>>
   //                             ( n_b_faces * 3,
   //                               coefb_d,
   //                               coefa_d,
@@ -1849,7 +1849,34 @@ cs_reconstruct_vector_gradient_cuda(const cs_mesh_t              *m,
   //                               grad_d,
   //                               b_f_face_normal,
   //                               b_face_cells);
+
+  // _compute_reconstruct_v_b_face_new<<<get_gridsize(n_b_faces, blocksize), blocksize, 0, stream>>>
+  //                             ( n_b_faces,
+  //                               coefb_d,
+  //                               coefa_d,
+  //                               pvar_d,
+  //                               inc,
+  //                               diipb,
+  //                               r_grad_d,
+  //                               grad_d,
+  //                               b_f_face_normal,
+  //                               b_face_cells,
+  //                               cell_b_faces_idx);
   
+
+  _compute_reconstruct_v_b_face_new_v2<<<get_gridsize(n_b_faces * 3, blocksize), blocksize, 0, stream>>>
+                              ( n_b_faces * 3,
+                                coefb_d,
+                                coefa_d,
+                                pvar_d,
+                                inc,
+                                diipb,
+                                r_grad_d,
+                                grad_d,
+                                b_f_face_normal,
+                                b_face_cells,
+                                cell_b_faces_idx);
+
   /*************************************Kernels Scatter conflict free************************************/
   // _compute_reconstruct_v_b_face_cf<<<get_gridsize(n_b_faces, blocksize), blocksize, 0, stream>>>
   //                             ( n_b_faces,
@@ -1863,7 +1890,7 @@ cs_reconstruct_vector_gradient_cuda(const cs_mesh_t              *m,
   //                               b_f_face_normal,
   //                               b_face_cells);
 
-  // _compute_reconstruct_v_b_face_v2_cf<<<get_gridsize(n_b_faces, blocksize) * 3, blocksize, 0, stream>>>
+  // _compute_reconstruct_v_b_face_v2_cf<<<get_gridsize(n_b_faces * 3, blocksize), blocksize, 0, stream>>>
   //                             ( n_b_faces * 3,
   //                               coefb_d,
   //                               coefa_d,
@@ -1938,19 +1965,19 @@ cs_reconstruct_vector_gradient_cuda(const cs_mesh_t              *m,
 
 
   /*************************************Kernels Gather shared memory***************************************/
-  _compute_reconstruct_v_b_face_gather_v5<<<get_gridsize(n_b_cells, blocksize), blocksize, 0, stream>>>
-                              ( n_b_cells,
-                                coefb_d,
-                                coefa_d,
-                                pvar_d,
-                                inc,
-                                diipb,
-                                r_grad_d,
-                                grad_d,
-                                b_f_face_normal,
-                                b_cells,
-                                cell_b_faces,
-                                cell_b_faces_idx);
+  // _compute_reconstruct_v_b_face_gather_v5<<<get_gridsize(n_b_cells, blocksize), blocksize, 0, stream>>>
+  //                             ( n_b_cells,
+  //                               coefb_d,
+  //                               coefa_d,
+  //                               pvar_d,
+  //                               inc,
+  //                               diipb,
+  //                               r_grad_d,
+  //                               grad_d,
+  //                               b_f_face_normal,
+  //                               b_cells,
+  //                               cell_b_faces,
+  //                               cell_b_faces_idx);
 
 
   CS_CUDA_CHECK(cudaEventRecord(b_faces_2, stream));

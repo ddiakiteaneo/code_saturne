@@ -123,6 +123,126 @@ _compute_reconstruct_v_b_face(cs_lnum_t            n_b_faces,
   }
 }
 
+
+
+__global__ static void
+_compute_reconstruct_v_b_face_new(cs_lnum_t            n_b_faces,
+                              const cs_real_33_t  *restrict coefbv,
+                              const cs_real_3_t   *restrict coefav,
+                              const cs_real_3_t   *restrict pvar,
+                              int                           inc,
+                              const cs_real_3_t *restrict diipb,
+                              const cs_real_33_t        *restrict r_grad,
+                              cs_real_33_t        *restrict grad,
+                              const cs_real_3_t *restrict b_f_face_normal,
+                              const cs_lnum_t   *restrict b_face_cells,
+                              const cs_lnum_t   *restrict cell_b_faces_idx)
+{
+  cs_lnum_t f_id = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if(f_id >= n_b_faces){
+    return;
+  }
+  cs_lnum_t c_id;
+  cs_real_t pfac, rfac, vecfac, g_cij;
+
+  c_id = b_face_cells[f_id];
+
+  int need_atomic = cell_b_faces_idx[c_id+1] - cell_b_faces_idx[c_id] - 1;
+
+  for (cs_lnum_t i = 0; i < 3; i++) {
+
+    pfac = inc*coefav[f_id][i];
+
+    for (cs_lnum_t k = 0; k < 3; k++){
+      pfac += coefbv[f_id][i][k] * pvar[c_id][k];
+    }
+
+    pfac -= pvar[c_id][i];
+
+    /* Reconstruction part */
+    rfac = 0.;
+    for (cs_lnum_t k = 0; k < 3; k++) {
+      vecfac =   r_grad[c_id][k][0] * diipb[f_id][0]
+                          + r_grad[c_id][k][1] * diipb[f_id][1]
+                          + r_grad[c_id][k][2] * diipb[f_id][2];
+      rfac += coefbv[f_id][i][k] * vecfac;
+    }
+    for (cs_lnum_t j = 0; j < 3; j++){
+      g_cij = (pfac + rfac) * b_f_face_normal[f_id][j];
+      if (need_atomic) {
+        atomicAdd(&grad[c_id][i][j], g_cij);
+      }
+      else {
+        grad[c_id][i][j] += g_cij;
+      }
+    }
+  }
+}
+
+
+
+__global__ static void
+_compute_reconstruct_v_b_face_new_v2(cs_lnum_t            n_b_faces,
+                              const cs_real_33_t  *restrict coefbv,
+                              const cs_real_3_t   *restrict coefav,
+                              const cs_real_3_t   *restrict pvar,
+                              int                           inc,
+                              const cs_real_3_t *restrict diipb,
+                              const cs_real_33_t        *restrict r_grad,
+                              cs_real_33_t        *restrict grad,
+                              const cs_real_3_t *restrict b_f_face_normal,
+                              const cs_lnum_t *restrict b_face_cells,
+                              const cs_lnum_t   *restrict cell_b_faces_idx)
+{
+  cs_lnum_t f_idt = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if(f_idt >= n_b_faces){
+    return;
+  }
+
+  size_t f_id = f_idt / 3;
+  size_t i = f_idt % 3;
+
+  cs_lnum_t c_id;
+  cs_real_t pond, ktpond, pfac, rfac, vecfac, g_cij;
+
+  // if (coupled_faces[f_id * cpl_stride])
+  //   return;
+
+  c_id = b_face_cells[f_id];
+
+  int need_atomic = cell_b_faces_idx[c_id+1] - cell_b_faces_idx[c_id] - 1;
+
+  pfac = inc*coefav[f_id][i];
+
+  for (cs_lnum_t k = 0; k < 3; k++){
+    pfac += coefbv[f_id][i][k] * pvar[c_id][k];
+  }
+
+  pfac -= pvar[c_id][i];
+
+  /* Reconstruction part */
+  rfac = 0.;
+  for (cs_lnum_t k = 0; k < 3; k++) {
+    vecfac =   r_grad[c_id][k][0] * diipb[f_id][0]
+                        + r_grad[c_id][k][1] * diipb[f_id][1]
+                        + r_grad[c_id][k][2] * diipb[f_id][2];
+    rfac += coefbv[f_id][i][k] * vecfac;
+  }
+  
+  for (cs_lnum_t j = 0; j < 3; j++){
+    g_cij = (pfac + rfac) * b_f_face_normal[f_id][j];
+    if (need_atomic) {
+      atomicAdd(&grad[c_id][i][j], g_cij);
+    }
+    else {
+      grad[c_id][i][j] += g_cij;
+    }
+  }
+
+}
+
 __global__ static void
 _compute_reconstruct_correction(cs_lnum_t            n_cells,
                                cs_lnum_t            has_dc,
