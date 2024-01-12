@@ -2347,6 +2347,72 @@ cs_convection_diffusion_scalar(int                         idtvar,
     }
     else {
 
+      // On passe ici
+
+      /*Begining omp part*/
+
+#if defined(HAVE_OPENMP_TARGET)
+      
+      for (cs_lnum_t f_id = 0; f_id < n_i_faces; i++){
+
+        cs_lnum_t c_id1 = i_face_cells[f_id][0];
+        cs_lnum_t c_id2 = i_face_cells[f_id][1];
+        
+        if (ii < n_cells) {
+          n_upwind++;
+        }
+
+        cs_real_2_t fluxij = {0.,0.};
+
+        cs_real_t pif, pjf;
+        cs_real_t pip, pjp;
+        cs_real_t bldfrp = (cs_real_t) ircflp;
+        if (df_limiter != NULL && ircflp > 0){
+          bldfrp = (((df_limiter[ii] <  df_limiter[jj]) ? df_limiter[ii] : df_limiter[jj]) <  0.) ? 0. : ((df_limiter[ii] <  df_limiter[jj]) ? df_limiter[ii] : df_limiter[jj]);
+        }
+
+
+        // cs_i_cd_unsteady_upwind
+        /***************START*******************/
+        cs_real_t recoi, recoj;
+        cs_real_t gradpf[3] = {0.5*(gradi[0] + gradj[0]),
+                              0.5*(gradi[1] + gradj[1]),
+                              0.5*(gradi[2] + gradj[2])};
+
+        /* reconstruction only if IRCFLP = 1 */
+        recoi = bldfrp*(gradpf[0]*diipf[0] + gradpf[1]*diipf[1] + gradpf[2]*diipf[2]);
+        recoj = bldfrp*(gradpf[0]*diipf[0] + gradpf[1]*diipf[1] + gradpf[2]*diipf[2]);
+        pip = _pvar[ii] + recoi;
+        pjp = _pvar[jj] + recoj;
+
+        cs_real_t  *pif, *pjf;
+        *pif = _pvar[ii];
+        *pjf = _pvar[jj];
+        /****************END******************/
+
+
+        // cs_i_conv_flux
+        /***************START*******************/
+        cs_real_t flui, fluj;
+
+        flui = 0.5*(i_massflux + fabs(i_massflux));
+        fluj = 0.5*(i_massflux - fabs(i_massflux));
+
+        fluxij[0] += iconvp*xcppi*(thetap*(flui*pifri + fluj*pjfri) - imasac*i_massflux*pi);
+        fluxij[1] += iconvp*xcppj*(thetap*(flui*pifrj + fluj*pjfrj) - imasac*i_massflux*pj);
+        /****************END******************/
+        
+        // cs_i_diff_flux
+        /***************START*******************/
+        fluxij[0] += idiffp*thetap*i_visc[f_id]*(pip -pjp);
+        fluxij[1] += idiffp*thetap*i_visc[f_id]*(pip -pjp);
+        /****************END******************/
+
+        rhs[ii] -= fluxij[0];
+        rhs[jj] += fluxij[1];
+      }
+      /*End omp part*/
+#else
       for (int g_id = 0; g_id < n_i_groups; g_id++) {
 #       pragma omp parallel for
         for (int t_id = 0; t_id < n_i_threads; t_id++) {
@@ -2499,7 +2565,7 @@ cs_convection_diffusion_scalar(int                         idtvar,
           }
         }
       }
-
+#endif
     }
 
   /* --> Flux with slope test
