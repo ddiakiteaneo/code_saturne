@@ -24,6 +24,7 @@
 
 /*----------------------------------------------------------------------------*/
 #include "cs_alge_cuda.cuh"
+#include "cs_dispatch.h"
 
 #include "cs_gradient.h"
 #include "cs_gradient_lsq_vector.cuh"
