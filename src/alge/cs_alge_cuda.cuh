@@ -426,3 +426,211 @@ class AtomicCell<T, Head, Tail...> {
       return reinterpret_cast<AtomicCell const&>(r);
     }
 };
+
+template <class T>
+class SharedMemory;
+
+template <> class SharedMemory<void> {
+private:
+  size_t memory_size = 0;
+  void *host_ptr = nullptr;
+  void *device_ptr = nullptr;
+  bool host_synced = false;
+  bool device_synced = false;
+  bool host_owned = false;
+  bool device_owned = false;
+  cs_alloc_mode_t mode = CS_ALLOC_HOST;
+public:
+  SharedMemory() noexcept = default;
+  SharedMemory(const SharedMemory&) = delete;
+  SharedMemory(SharedMemory&& other) : SharedMemory() {
+    swap(*this, other);
+  }
+  SharedMemory& operator=(const SharedMemory&) = delete;
+  SharedMemory& operator=(SharedMemory&& other) {
+    swap(*this, other);
+    return *this;
+  }
+
+  ~SharedMemory() {
+    if (host_ptr && host_owned) {
+      switch (mode) {
+        case CS_ALLOC_HOST:
+          CS_FREE(host_ptr);
+          break;
+        case CS_ALLOC_DEVICE:
+          break;
+        default:
+          CS_FREE_HD(host_ptr);
+          break;
+        }
+    }
+
+    if (device_ptr && device_owned) {
+      CS_CUDA_CHECK(cudaFree(device_ptr));
+    }
+  }
+
+  friend void swap(SharedMemory& a, SharedMemory& b) noexcept {
+    std::swap(a.memory_size, b.memory_size);
+    std::swap(a.host_ptr, b.host_ptr);
+    std::swap(a.device_ptr, b.device_ptr);
+    std::swap(a.host_synced, b.host_synced);
+    std::swap(a.device_synced, b.device_synced);
+    std::swap(a.host_owned, b.host_owned);
+    std::swap(a.device_owned, b.device_owned);
+    std::swap(a.mode, b.mode);
+  }
+
+public:
+  explicit SharedMemory(size_t size) noexcept : memory_size(size) {}
+
+  static SharedMemory from_host(void* ptr, size_t size, bool initialized = true) noexcept {
+    SharedMemory mem(size);
+    mem.mode = cs_check_device_ptr(ptr);
+    switch(mem.mode) {
+      case CS_ALLOC_HOST:
+        mem.host_ptr = ptr;
+        mem.host_synced = initialized;
+        break;
+      case CS_ALLOC_HOST_DEVICE:
+      case CS_ALLOC_HOST_DEVICE_PINNED:
+      case CS_ALLOC_HOST_DEVICE_SHARED:
+        mem.host_ptr = ptr;
+        mem.device_ptr = cs_get_device_ptr(ptr);
+        mem.host_synced = initialized;
+        break;
+      case CS_ALLOC_DEVICE:
+        mem.device_ptr = ptr;
+        mem.device_synced = initialized;
+        break;
+    }
+    return mem;
+  }
+
+
+  static SharedMemory from_device(void* ptr, size_t size, bool initialized = true) noexcept {
+    SharedMemory mem(size);
+    mem.mode = cs_check_device_ptr(ptr);
+    switch(mem.mode) {
+      case CS_ALLOC_HOST:
+        mem.host_ptr = ptr;
+        mem.host_synced = initialized;
+        break;
+      case CS_ALLOC_HOST_DEVICE:
+      case CS_ALLOC_HOST_DEVICE_PINNED:
+      case CS_ALLOC_HOST_DEVICE_SHARED:
+        mem.host_ptr = ptr;
+        mem.device_ptr = cs_get_device_ptr(ptr);
+        mem.device_synced = initialized;
+        break;
+      case CS_ALLOC_DEVICE:
+        mem.device_ptr = ptr;
+        mem.device_synced = initialized;
+        break;
+    }
+    return mem;
+  }
+
+public:
+  const void* get_host_const(
+                       cudaStream_t stream = 0, const char* varname = "host_ptr", const char* filename = __builtin_FILE(), size_t line = __builtin_LINE()) {
+    if (host_synced) {
+      return host_ptr;
+    }
+    if (!host_ptr) {
+      if (mode == CS_ALLOC_HOST_DEVICE_SHARED) {
+        host_ptr = device_ptr;
+      } else {
+        host_ptr   = bft_mem_malloc(1, memory_size, varname, filename, line);
+        host_owned = true;
+      }
+    }
+    if (device_synced) {
+        switch(mode) {
+          case CS_ALLOC_HOST:
+          case CS_ALLOC_HOST_DEVICE:
+          case CS_ALLOC_HOST_DEVICE_PINNED:
+          case CS_ALLOC_DEVICE:
+            CS_CUDA_CHECK_CALL(cudaMemcpyAsync(host_ptr,
+                                               device_ptr,
+                                               memory_size,
+                                               cudaMemcpyDeviceToHost,
+                                               stream),
+                               filename,
+                               line);
+            break;
+          case CS_ALLOC_HOST_DEVICE_SHARED:
+            CS_CUDA_CHECK_CALL(
+              cudaMemPrefetchAsync(host_ptr, memory_size, cudaCpuDeviceId, stream),
+              filename,
+              line);
+            break;
+        }
+    }
+
+    host_synced = true;
+
+    return host_ptr;
+  }
+
+  void* get_host_mutable(cudaStream_t stream = 0, const char* varname = "host_ptr", const char* filename = __builtin_FILE(), size_t line = __builtin_LINE()) {
+    get_host_const(stream, varname, filename, line);
+    device_synced = false;
+    return host_ptr;
+  }
+
+  const void *
+  get_device_const(cudaStream_t stream   = 0,
+                   const char  *varname  = "device_ptr",
+                   const char  *filename = __builtin_FILE(),
+                   size_t       line     = __builtin_LINE())
+  {
+    if (device_synced) {
+      return device_ptr;
+    }
+    if (!device_ptr) {
+      if (mode == CS_ALLOC_HOST_DEVICE_SHARED) {
+        device_ptr = host_ptr;
+      }
+      else {
+        CS_CUDA_CHECK_CALL(
+          cudaMallocAsync(&device_ptr, memory_size, stream), filename, line);
+        device_owned = true;
+      }
+    }
+    if (host_synced) {
+      switch (mode) {
+      case CS_ALLOC_HOST:
+      case CS_ALLOC_HOST_DEVICE:
+      case CS_ALLOC_HOST_DEVICE_PINNED:
+      case CS_ALLOC_DEVICE:
+        CS_CUDA_CHECK_CALL(
+          cudaMemcpyAsync(
+            device_ptr, host_ptr, memory_size, cudaMemcpyHostToDevice, stream),
+          filename,
+          line);
+        break;
+      case CS_ALLOC_HOST_DEVICE_SHARED:
+        CS_CUDA_CHECK_CALL(
+          cudaMemPrefetchAsync(
+            host_ptr, memory_size, cs_glob_cuda_device_id, stream),
+          filename,
+          line);
+        break;
+      }
+    }
+
+    return device_ptr;
+  }
+  void *
+  get_device_mutable(cudaStream_t stream   = 0,
+                   const char  *varname  = "device_ptr",
+                   const char  *filename = __builtin_FILE(),
+                   size_t       line     = __builtin_LINE())
+  {
+    get_device_const(stream, varname, filename, line);
+    host_synced = false;
+    return device_ptr;
+  }
+};
