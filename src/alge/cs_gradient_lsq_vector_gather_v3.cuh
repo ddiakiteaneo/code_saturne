@@ -262,3 +262,96 @@ _compute_rhs_lsq_v_b_face_gather_v3(cs_lnum_t           n_b_cells,
     }
   }
 }
+
+template<bool update_cocg = false>
+__global__ static void
+_compute_rhs_lsq_v_b_face_gather_v4(cs_lnum_t           n_b_cells,
+                          const cs_lnum_t      *restrict cell_b_faces_idx,
+                          const cs_lnum_t      *restrict cell_b_faces,
+                          const cs_lnum_t      *restrict b_cells,
+                          const cs_real_3_t    *restrict b_face_cog,
+                          const cs_real_3_t    *restrict cell_cen,
+                          cs_real_33_t         *restrict rhs,
+                          const cs_real_3_t    *restrict pvar,
+                          const cs_real_t      *restrict b_dist,
+                          const cs_real_33_t   *restrict coefbv,
+                          const cs_real_3_t    *restrict coefav,
+                          const cs_real_6_t    *restrict cocgb,
+                          cs_real_6_t          *restrict cocg,
+                          const int            inc)
+{
+  cs_lnum_t c_idx = blockIdx.x * blockDim.x + threadIdx.x;
+  cs_lnum_t lindex = threadIdx.x;
+
+  if(c_idx >= n_b_cells){
+    return;
+  }
+  
+  cs_lnum_t c_id = b_cells[c_idx];
+
+  cs_lnum_t f_id;
+  cs_real_t dif[3], ddif, pfac, norm, inverse_norm;
+
+  cs_lnum_t s_id = cell_b_faces_idx[c_id];
+  cs_lnum_t e_id = cell_b_faces_idx[c_id + 1];
+
+  __shared__ cs_real_t _rhs[256][3][3];
+
+  for(cs_lnum_t i = 0; i < 3; i++){
+    for(cs_lnum_t j = 0; j < 3; j++){
+      _rhs[lindex][i][j] = rhs[c_id][i][j];
+    }
+  }
+
+  for (cs_lnum_t ll = 0; ll < 6; ll++)
+    cocg[c_id][ll] = cocgb[c_idx][ll];
+
+  // __syncthreads();
+  
+  auto _pvar1 = pvar[c_id];
+
+  for(cs_lnum_t index = s_id; index < e_id; index++){
+
+    f_id = cell_b_faces[index];
+
+    auto _coefav = coefav[f_id];
+    auto _coefbv = coefbv[f_id];
+
+    for (cs_lnum_t ll = 0; ll < 3; ll++)
+      dif[ll] = b_face_cog[f_id][ll] - cell_cen[c_id][ll];
+
+    ddif = 1. / cs_math_3_square_norm_cuda(dif);
+
+      cocg[c_id][0] += dif[0]*dif[0]*ddif;
+      cocg[c_id][1] += dif[1]*dif[1]*ddif;
+      cocg[c_id][2] += dif[2]*dif[2]*ddif;
+      cocg[c_id][3] += dif[0]*dif[1]*ddif;
+      cocg[c_id][4] += dif[1]*dif[2]*ddif;
+      cocg[c_id][5] += dif[0]*dif[2]*ddif;
+
+    cs_real_t var_f[3];
+
+    for (cs_lnum_t kk = 0; kk < 3; kk++) {
+      cs_real_t var_f = coefav[f_id][kk]*inc;
+      for (cs_lnum_t ll = 0; ll < 3; ll++) {
+        var_f += coefbv[f_id][ll][kk] * pvar[c_id][ll];
+      }
+
+      cs_real_t pfac = (var_f - pvar[c_id][kk]) * ddif;
+
+
+      _rhs[lindex][kk][0] += dif[0] * pfac;
+      _rhs[lindex][kk][1]+= dif[1] * pfac;
+      _rhs[lindex][kk][2] += dif[2] * pfac; 
+    }
+
+  }
+  // __syncthreads();
+  for(cs_lnum_t i = 0; i < 3; i++){
+    for(cs_lnum_t j = 0; j < 3; j++){
+      rhs[c_id][i][j] = _rhs[lindex][i][j];
+    }
+  }
+
+  _math_6_inv_cramer_sym_in_place_cuda(cocg[c_id]);
+}

@@ -1110,18 +1110,35 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
   //      cocgb, 
   //      inc);
     
-  _compute_rhs_lsq_v_b_face_gather_v3<<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>
+  // _compute_rhs_lsq_v_b_face_gather_v3<<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>
+  //    (m->n_b_cells,
+  //     cell_b_faces_idx,
+  //     cell_b_faces,
+  //     b_cells,
+  //     b_face_normal, 
+  //     rhs_d, 
+  //     pvar_d, 
+  //     b_dist, 
+  //     coefb_d, 
+  //     coefa_d, 
+  //     inc);
+
+    _compute_rhs_lsq_v_b_face_gather_v4<true><<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>
      (m->n_b_cells,
       cell_b_faces_idx,
       cell_b_faces,
       b_cells,
-      b_face_normal, 
+      b_face_cog, 
+      cell_cen,
       rhs_d, 
       pvar_d, 
       b_dist, 
       coefb_d, 
-      coefa_d, 
+      coefa_d,
+      cocgb,
+      cocg,
       inc);
+
 
   // _compute_rhs_lsq_v_b_face_v2<<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>
   //     (m->n_b_faces,
@@ -1175,21 +1192,37 @@ cs_lsq_vector_gradient_cuda(const cs_mesh_t               *m,
 
   CS_CUDA_CHECK(cudaEventRecord(gradient, stream));
 
-  _compute_gradient_lsq_b_v<<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>
-    (m->n_b_cells,
-     b_cells,
-     cell_b_faces_idx,
-     cell_b_faces,
-     b_face_normal,
-     diipb,
-     pvar_d,
-     b_dist,
-     coefb_d,
-     coefa_d,
-     grad_d, 
-     rhs_d, 
-     cocgb,
-     inc);
+  // _compute_gradient_lsq_b_v<<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>
+  //   (m->n_b_cells,
+  //    b_cells,
+  //    cell_b_faces_idx,
+  //    cell_b_faces,
+  //    b_face_normal,
+  //    diipb,
+  //    pvar_d,
+  //    b_dist,
+  //    coefb_d,
+  //    coefa_d,
+  //    grad_d, 
+  //    rhs_d, 
+  //    cocgb,
+  //    inc);
+
+  _compute_gradient_lsq_b_strided_v
+    <<<get_gridsize(m->n_b_cells, blocksize), blocksize, 0, stream>>>(
+      m->n_b_cells,
+      b_cells,
+      cell_b_faces_idx,
+      cell_b_faces,
+      b_face_cog,
+      cell_cen,
+      diipb,
+      grad_d,
+      coefb_d,
+      cocg,
+      10, //n_c_iter_max,
+      1e-6 //c_eps
+      );
 
   CS_CUDA_CHECK(cudaEventRecord(gradient_b, stream));
 

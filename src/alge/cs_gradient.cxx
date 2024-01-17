@@ -7256,7 +7256,7 @@ _lsq_vector_gradient(const cs_mesh_t               *m,
   compute_cpu   = true;
   // res_cpu       = false;
   perf        = true;
-  // accuracy    = true;
+  accuracy    = true;
   
 BFT_MALLOC(rhs, n_cells_ext, cs_real_33_t);
 BFT_MALLOC(rhs_cuda, n_cells_ext, cs_real_33_t);
