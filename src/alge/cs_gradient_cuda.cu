@@ -583,9 +583,10 @@ cs_gradient_scalar_lsq_cuda(const cs_mesh_t              *m,
   int device_id;
   cudaGetDevice(&device_id);
 
-  cudaStream_t stream, stream1;
-  cudaStreamCreate(&stream1);
+  cudaStream_t stream;
   cudaStreamCreate(&stream);
+
+  CsContext ctx(CsCudaContext(1, 1, stream, device_id), {});
 
   cs_real_4_t *rhsv;
   CS_CUDA_CHECK(cudaMalloc(&rhsv, n_cells_ext * sizeof(cs_real_4_t)));
@@ -593,12 +594,12 @@ cs_gradient_scalar_lsq_cuda(const cs_mesh_t              *m,
   void *_pvar_d = NULL, *_coefa_d = NULL, *_coefb_d = NULL;
   const cs_real_t *pvar_d = NULL, *coefa_d = NULL, *coefb_d = NULL;
 
-  _sync_or_copy_real_h2d(pvar, n_cells_ext, device_id, stream1,
+  _sync_or_copy_real_h2d(pvar, n_cells_ext, device_id, stream,
                          &pvar_d, &_pvar_d);
 
-  _sync_or_copy_real_h2d(coefap, n_b_faces, device_id, stream1,
+  _sync_or_copy_real_h2d(coefap, n_b_faces, device_id, stream,
                          &coefa_d, &_coefa_d);
-  _sync_or_copy_real_h2d(coefbp, n_b_faces, device_id, stream1,
+  _sync_or_copy_real_h2d(coefbp, n_b_faces, device_id, stream,
                          &coefb_d, &_coefb_d);
 
   unsigned int blocksize = 256;
@@ -641,11 +642,13 @@ cs_gradient_scalar_lsq_cuda(const cs_mesh_t              *m,
   const cs_real_t *restrict weight
     = (const cs_real_t *restrict)cs_get_device_ptr_const_pf(fvq->weight);
 
-  cudaStreamDestroy(stream1);
-  cudaStreamSynchronize(0);
-
-  _init_rhsv<<<gridsize_ext, blocksize, 0, stream>>>
-    (n_cells_ext, rhsv, pvar_d);
+  ctx.set_cuda_config(gridsize_ext, blocksize);
+  ctx.iter_cells(m, CS_HOST_DEVICE_FUNCTOR(=, (cs_lnum_t c_id), {
+                   rhsv[c_id][0] = 0.0;
+                   rhsv[c_id][1] = 0.0;
+                   rhsv[c_id][2] = 0.0;
+                   rhsv[c_id][3] = pvar[c_id];
+                 }));
 
   /* Reconstruct gradients using least squares for non-orthogonal meshes */
   /*---------------------------------------------------------------------*/
@@ -654,44 +657,156 @@ cs_gradient_scalar_lsq_cuda(const cs_mesh_t              *m,
 
   if (init_cocg) {
 
-    _compute_cocg_rhsv_lsq_s_i_face<<<gridsize, blocksize, 0, stream>>>
-      (n_cells, cocg, cell_cells_idx, cell_cells, cell_cen, rhsv, c_weight);
+    ctx.set_cuda_config(gridsize, blocksize);
+    ctx.iter_cells(
+      m, CS_HOST_DEVICE_FUNCTOR(=, (cs_lnum_t c_id), {
+        /* Initialize COCG (RHS initialize before) */
+
+        cocg[c_id][0] = 0;
+        cocg[c_id][1] = 0;
+        cocg[c_id][2] = 0;
+        cocg[c_id][3] = 0;
+        cocg[c_id][4] = 0;
+        cocg[c_id][5] = 0;
+
+        cs_lnum_t s_id = cell_cells_idx[c_id];
+        cs_lnum_t e_id = cell_cells_idx[c_id + 1];
+        cs_real_t dc[3], ddc, _weight;
+        cs_lnum_t c_id1;
+
+        /* Add contributions from neighbor cells/interior faces */
+
+        for (cs_lnum_t i = s_id; i < e_id; i++) {
+          c_id1 = cell_cells[i];
+
+          dc[0] = cell_cen[c_id1][0] - cell_cen[c_id][0];
+          dc[1] = cell_cen[c_id1][1] - cell_cen[c_id][1];
+          dc[2] = cell_cen[c_id1][2] - cell_cen[c_id][2];
+
+          ddc = 1. / (dc[0] * dc[0] + dc[1] * dc[1] + dc[2] * dc[2]);
+          if (c_weight == NULL)
+            _weight = 1;
+          else
+            _weight = 2. * c_weight[c_id1] / (c_weight[c_id] + c_weight[c_id1]);
+
+          _weight *= (rhsv[c_id1][3] - rhsv[c_id][3]) * ddc;
+
+          rhsv[c_id][0] += dc[0] * _weight;
+          rhsv[c_id][1] += dc[1] * _weight;
+          rhsv[c_id][2] += dc[2] * _weight;
+
+          cocg[c_id][0] += dc[0] * dc[0] * ddc;
+          cocg[c_id][1] += dc[1] * dc[1] * ddc;
+          cocg[c_id][2] += dc[2] * dc[2] * ddc;
+          cocg[c_id][3] += dc[0] * dc[1] * ddc;
+          cocg[c_id][4] += dc[1] * dc[2] * ddc;
+          cocg[c_id][5] += dc[0] * dc[2] * ddc;
+        }
+      }));
 
     /* Contribution from extended neighborhood */
-    if (halo_type == CS_HALO_EXTENDED && cell_cells_e_idx != NULL)
-      _compute_cocg_rhsv_lsq_s_i_face<<<gridsize, blocksize, 0, stream>>>
-        (n_cells,
-         cocg,
-         cell_cells_e_idx,
-         cell_cells_e,
-         cell_cen,
-         rhsv,
-         c_weight);
+    if (halo_type == CS_HALO_EXTENDED && cell_cells_e_idx != NULL) {
+      ctx.set_cuda_config(gridsize, blocksize);
+      ctx.iter_cells(
+        m, CS_HOST_DEVICE_FUNCTOR(=, (cs_lnum_t c_id), {
+          /* Initialize COCG (RHS initialize before) */
 
-    _save_cocgb<<<gridsize_b, blocksize, 0, stream>>>
-      (m->n_b_cells, b_cells, cocg, cocgb);
+          cocg[c_id][0] = 0;
+          cocg[c_id][1] = 0;
+          cocg[c_id][2] = 0;
+          cocg[c_id][3] = 0;
+          cocg[c_id][4] = 0;
+          cocg[c_id][5] = 0;
 
-    _compute_cocg_rhsv_lsq_s_b_face<<<gridsize_bf, blocksize, 0, stream>>>
-      (m->n_b_cells,
-       inc,
-       b_cells,
-       cell_b_faces_idx,
-       cell_b_faces,
-       b_face_normal,
-       b_face_surf,
-       b_dist,
-       diipb,
-       coefa_d,
-       coefb_d,
-       cocg,
-       rhsv);
+          cs_lnum_t s_id = cell_cells_idx[c_id];
+          cs_lnum_t e_id = cell_cells_idx[c_id + 1];
+          cs_real_t dc[3], ddc, _weight;
+          cs_lnum_t c_id1;
+
+          /* Add contributions from neighbor cells/interior faces */
+
+          for (cs_lnum_t i = s_id; i < e_id; i++) {
+            c_id1 = cell_cells[i];
+
+            dc[0] = cell_cen[c_id1][0] - cell_cen[c_id][0];
+            dc[1] = cell_cen[c_id1][1] - cell_cen[c_id][1];
+            dc[2] = cell_cen[c_id1][2] - cell_cen[c_id][2];
+
+            ddc = 1. / (dc[0] * dc[0] + dc[1] * dc[1] + dc[2] * dc[2]);
+            if (c_weight == NULL)
+              _weight = 1;
+            else
+              _weight
+                = 2. * c_weight[c_id1] / (c_weight[c_id] + c_weight[c_id1]);
+
+            _weight *= (rhsv[c_id1][3] - rhsv[c_id][3]) * ddc;
+
+            rhsv[c_id][0] += dc[0] * _weight;
+            rhsv[c_id][1] += dc[1] * _weight;
+            rhsv[c_id][2] += dc[2] * _weight;
+
+            cocg[c_id][0] += dc[0] * dc[0] * ddc;
+            cocg[c_id][1] += dc[1] * dc[1] * ddc;
+            cocg[c_id][2] += dc[2] * dc[2] * ddc;
+            cocg[c_id][3] += dc[0] * dc[1] * ddc;
+            cocg[c_id][4] += dc[1] * dc[2] * ddc;
+            cocg[c_id][5] += dc[0] * dc[2] * ddc;
+          }
+        }));
+    }
+
+    ctx.set_cuda_config(gridsize_b, blocksize);
+    ctx.iter(m->n_b_cells, CS_HOST_DEVICE_FUNCTOR(=, (cs_lnum_t ii), {
+                     cs_lnum_t c_id = b_cells[ii];
+                     auto      a    = cocgb[ii];
+                     auto      b    = cocg[c_id];
+                     a[0]           = b[0];
+                     a[1]           = b[1];
+                     a[2]           = b[2];
+                     a[3]           = b[3];
+                     a[4]           = b[4];
+                     a[5]           = b[5];
+                   }));
+
+    ctx.set_cuda_config(gridsize_b, blocksize);
+    ctx.iter(
+      m->n_b_cells, CS_HOST_DEVICE_FUNCTOR(=, (cs_lnum_t b_c_idx), {
+        cs_lnum_t c_id = b_cells[b_c_idx];
+
+        cs_lnum_t s_id = cell_b_faces_idx[c_id];
+        cs_lnum_t e_id = cell_b_faces_idx[c_id + 1];
+
+        for (cs_lnum_t i = s_id; i < e_id; i++) {
+          cs_lnum_t f_id = cell_b_faces[i];
+
+          cs_real_t unddij = 1. / b_dist[f_id];
+          cs_real_t umcbdd = (1. - coefbp[f_id]) * unddij;
+          cs_real_t udbfs  = 1. / b_face_surf[f_id];
+          cs_real_t dddij[3];
+          dddij[0] = udbfs * b_face_normal[f_id][0] + umcbdd * diipb[f_id][0];
+          dddij[1] = udbfs * b_face_normal[f_id][1] + umcbdd * diipb[f_id][1];
+          dddij[2] = udbfs * b_face_normal[f_id][2] + umcbdd * diipb[f_id][2];
+
+          unddij *= (coefap[f_id] * inc + (coefbp[f_id] - 1.) * rhsv[c_id][3]);
+
+          rhsv[c_id][0] += dddij[0] * unddij;
+          rhsv[c_id][1] += dddij[1] * unddij;
+          rhsv[c_id][2] += dddij[2] * unddij;
+
+          cocg[c_id][0] += dddij[0] * dddij[0];
+          cocg[c_id][1] += dddij[1] * dddij[1];
+          cocg[c_id][2] += dddij[2] * dddij[2];
+          cocg[c_id][3] += dddij[0] * dddij[1];
+          cocg[c_id][4] += dddij[1] * dddij[2];
+          cocg[c_id][5] += dddij[0] * dddij[2];
+        }
+      }));
 
     /* Invert COCG at all cells */
     _compute_cocg_inv<<<gridsize, blocksize, 0, stream>>>
       (m->n_cells, NULL, cocg);
 
     init_cocg = false;
-
   }
   else {
 
@@ -719,7 +834,6 @@ cs_gradient_scalar_lsq_cuda(const cs_mesh_t              *m,
       /* Invert COCG at boundary cells */
       _compute_cocg_inv<<<gridsize_b, blocksize, 0, stream>>>
         (m->n_b_cells, b_cells, cocg);
-
     }
     else
       _compute_rhsv_lsq_s_b_face<<<gridsize_bf, blocksize, 0, stream>>>
