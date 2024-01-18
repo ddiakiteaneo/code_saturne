@@ -58,6 +58,8 @@
  * Local macros
  *============================================================================*/
 
+#define INSTANTIATE(...) template decltype(__VA_ARGS__) __VA_ARGS__
+
 /*=============================================================================
  * Local definitions
  *============================================================================*/
@@ -69,36 +71,6 @@
 /*----------------------------------------------------------------------------
  * Recompute cocg at boundaries, using saved cocgb
  *----------------------------------------------------------------------------*/
-
-#define INSTANTIATE_LSQ(name, stride) template void name <stride> (const cs_mesh_t *m,\
-                     const cs_mesh_adjacencies_t   *madj,\
-                     const cs_mesh_quantities_t    *fvq,\
-                     const cs_halo_type_t           halo_type,\
-                     const int                      inc,\
-                     const cs_real_t (*restrict coefav)[stride],\
-                     const cs_real_t (*restrict coefbv)[stride][stride],\
-                     const cs_real_t (*restrict pvar)[stride],\
-                     const cs_real_t      *restrict c_weight,\
-                     cs_cocg_6_t          *restrict cocg,\
-                     cs_cocg_6_t          *restrict cocgb,\
-                     cs_real_t (*restrict gradv)[stride][3],\
-                     cs_real_t (*restrict rhs)[stride][3],\
-                     cs_lnum_t n_c_iter_max,\
-                     cs_real_t c_eps)
-
-#define INSTANTIATE_RECONSTRUCT(name, stride) template void name <stride> (const cs_mesh_t *m, \
-                              const cs_mesh_adjacencies_t  *madj, \
-                              const cs_mesh_quantities_t   *fvq, \
-                              cs_halo_type_t                halo_type, \
-                              int                           inc, \
-                              const cs_real_t (*restrict coefav)[stride], \
-                              const cs_real_t (*restrict coefbv)[stride][stride], \
-                              const cs_real_t (*restrict pvar)[stride], \
-                              const cs_real_t     *restrict c_weight, \
-                              const cs_real_t (*restrict r_grad)[stride][3], \
-                              cs_real_t (*restrict grad)[stride][3], \
-                              bool                      test_bool, \
-                              bool                          perf)
 
 template <typename T>
 __global__ static void
@@ -1496,12 +1468,10 @@ cs_lsq_vector_gradient_strided_cuda(const cs_mesh_t               *m,
   
 }
 
-INSTANTIATE_LSQ(cs_lsq_vector_gradient_strided_cuda, 1);
-INSTANTIATE_LSQ(cs_lsq_vector_gradient_strided_cuda, 3);
-INSTANTIATE_LSQ(cs_lsq_vector_gradient_strided_cuda, 6);
-
-
-
+INSTANTIATE(cs_lsq_vector_gradient_strided_cuda<1>);
+INSTANTIATE(cs_lsq_vector_gradient_strided_cuda<3>);
+INSTANTIATE(cs_lsq_vector_gradient_strided_cuda<6>);
+INSTANTIATE(cs_lsq_vector_gradient_strided_cuda<9>);
 
 /*----------------------------------------------------------------------------
  * Reconstruct the gradient of a vector using a given gradient of
@@ -2182,6 +2152,7 @@ _gradient_vector_cuda(const cs_mesh_t    *mesh,
   CS_CUDA_CHECK(cudaFree(_bc_coeff_b_d));
 }
 
-INSTANTIATE_RECONSTRUCT(cs_reconstruct_vector_gradient_cuda, 1);
-INSTANTIATE_RECONSTRUCT(cs_reconstruct_vector_gradient_cuda, 3);
-INSTANTIATE_RECONSTRUCT(cs_reconstruct_vector_gradient_cuda, 6);
+INSTANTIATE(cs_reconstruct_vector_gradient_cuda<1>);
+INSTANTIATE(cs_reconstruct_vector_gradient_cuda<3>);
+INSTANTIATE(cs_reconstruct_vector_gradient_cuda<6>);
+INSTANTIATE(cs_reconstruct_vector_gradient_cuda<9>);
