@@ -57,9 +57,8 @@
 #define CS_CUDA_HOST_DEVICE
 #endif
 
-#define CS_HOST_FUNCTOR(capture, args, ...) cs_host_functor([CS_REMOVE_PARENTHESES(capture)] CS_CUDA_HOST args __VA_ARGS__)
-#define CS_DEVICE_FUNCTOR(capture, args, ...) cs_device_functor([CS_REMOVE_PARENTHESES(capture)] CS_CUDA_DEVICE args __VA_ARGS__)
-#define CS_HOST_DEVICE_FUNCTOR(capture, args, ...) cs_host_device_functor([CS_REMOVE_PARENTHESES(capture)] CS_CUDA_HOST_DEVICE args __VA_ARGS__)
+// Define a functor that is implemented both in device and host.
+#define CS_HOST_DEVICE_FUNCTOR(capture, args, ...) ([CS_REMOVE_PARENTHESES(capture)] CS_CUDA_HOST_DEVICE args __VA_ARGS__)
 
 /*----------------------------------------------------------------------------*/
 
@@ -68,168 +67,93 @@
  * Type definitions
  *============================================================================*/
 
-template <class F>
-class HostFunctor {
-  private:
-    F f;
-
-  public:
-    static constexpr bool is_host = true;
-    static constexpr bool is_device = false;
-
-  public:
-    CS_CUDA_HOST HostFunctor(F f) noexcept(noexcept(F(std::move(f)))) : f(std::move(f)) {}
-
-  public:
-    template <class... Args>
-    CS_CUDA_HOST auto operator()(Args&&... args) noexcept(noexcept(this->f(static_cast<Args&&>(args)...))) -> decltype(this->f(static_cast<Args&&>(args)...)) {
-      return this->f(static_cast<Args&&>(args)...);
-    }
-};
-
-template <class F>
-class DeviceFunctor {
-  private:
-    F f;
-
-    static_assert(sizeof(F) == 0, "Cannot create device functions without nvcc");
-
-  public:
-    static constexpr bool is_host = false;
-    static constexpr bool is_device = true;
-
-  public:
-    CS_CUDA_HOST_DEVICE DeviceFunctor(F f) noexcept(noexcept(F(std::move(f)))) : f(std::move(f)) {}
-
-  public:
-    template <class... Args>
-    CS_CUDA_DEVICE auto operator()(Args&&... args) noexcept(noexcept(this->f(static_cast<Args&&>(args)...))) -> decltype(this->f(static_cast<Args&&>(args)...)) {
-      return this->f(static_cast<Args&&>(args)...);
-    }
-};
-
-template <class F>
-class HostDeviceFunctor {
-  private:
-    F f;
-
-  public:
-    static constexpr bool is_host = true;
-    static constexpr bool is_device = true;
-
-  public:
-    CS_CUDA_HOST_DEVICE HostDeviceFunctor(F f) noexcept(noexcept(F(std::move(f)))) : f(std::move(f)) {}
-
-  public:
-    template <class... Args>
-    CS_CUDA_HOST_DEVICE auto operator()(Args&&... args) noexcept(noexcept(this->f(static_cast<Args&&>(args)...))) -> decltype(this->f(static_cast<Args&&>(args)...)) {
-      return this->f(static_cast<Args&&>(args)...);
-    }
-};
-
+/**
+ * Provide default implementations of a CsContext based on iter function.
+ * This class is a mixin that use CRTP to provide such functions.
+ */
 template <class Derived>
 class CsContextMixin {
   public:
-    template <class F, class... Args>
-    void iter_(cs_lnum_t n, F* f, Args&&... args) = delete;
-    template <class F, class... Args>
-    decltype(auto) iter_i_faces_(const cs_mesh_t* m, F* f, Args&&... args);
-    template <class F, class... Args>
-    decltype(auto) iter_b_faces_(const cs_mesh_t* m, F* f, Args&&... args);
-    template <class F, class... Args>
-    decltype(auto) iter_cells_(const cs_mesh_t* m, F* f, Args&&... args);
-  public:
+    // Iterate the mesh over the internal faces
     template <class F, class... Args>
     decltype(auto) iter_i_faces(const cs_mesh_t* m, F&& f, Args&&... args);
+
+    // Iterate the mesh over the boundary faces
     template <class F, class... Args>
     decltype(auto) iter_b_faces(const cs_mesh_t* m, F&& f, Args&&... args);
+
+    // Iterate the mesh over the cells
     template <class F, class... Args>
     decltype(auto) iter_cells(const cs_mesh_t* m, F&& f, Args&&... args);
+
+    // Iterate over the integers between 0 and n
+    // Must be redefined by the child class
     template <class F, class... Args>
-    decltype(auto) iter(cs_lnum_t n, F&& f, Args&&... args);
+    decltype(auto) iter(cs_lnum_t n, F&& f, Args&&... args) = delete;
 };
 
-template <class Derived>
-template <class F, class... Args>
-decltype(auto) CsContextMixin<Derived>::iter_i_faces_(const cs_mesh_t* m, F* f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_(m->n_i_faces, f, static_cast<Args&&>(args)...);
-}
-template <class Derived>
-template <class F, class... Args>
-decltype(auto) CsContextMixin<Derived>::iter_b_faces_(const cs_mesh_t* m, F* f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_(m->n_b_faces, f, static_cast<Args&&>(args)...);
-}
-template <class Derived>
-template <class F, class... Args>
-decltype(auto) CsContextMixin<Derived>::iter_cells_(const cs_mesh_t* m, F* f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_(m->n_cells, f, static_cast<Args&&>(args)...);
-}
+// Default implementation of iter_i_faces based on iter
 template <class Derived>
 template <class F, class... Args>
 decltype(auto) CsContextMixin<Derived>::iter_i_faces(const cs_mesh_t* m, F&& f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_i_faces_(m, &f, static_cast<Args&&>(args)...);
+  return static_cast<Derived*>(this)->iter(m->n_i_faces, static_cast<F&&>(f), static_cast<Args&&>(args)...);
 }
+
+// Default implementation of iter_b_faces based on iter
 template <class Derived>
 template <class F, class... Args>
 decltype(auto) CsContextMixin<Derived>::iter_b_faces(const cs_mesh_t* m, F&& f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_b_faces_(m, &f, static_cast<Args&&>(args)...);
+  return static_cast<Derived*>(this)->iter(m->n_b_faces, static_cast<F&&>(f), static_cast<Args&&>(args)...);
 }
+
+// Default implementation of iter_cells based on iter
 template <class Derived>
 template <class F, class... Args>
 decltype(auto) CsContextMixin<Derived>::iter_cells(const cs_mesh_t* m, F&& f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_cells_(m, &f, static_cast<Args&&>(args)...);
-}
-template <class Derived>
-template <class F, class... Args>
-decltype(auto) CsContextMixin<Derived>::iter(cs_lnum_t n, F&& f, Args&&... args) {
-  return static_cast<Derived*>(this)->iter_(n, &f, static_cast<Args&&>(args)...);
+  return static_cast<Derived*>(this)->iter(m->n_cells, static_cast<F&&>(f), static_cast<Args&&>(args)...);
 }
 
+/**
+ * CsContext to execute loops with OpenMP on the CPU
+ */
 class CsOpenMpContext : public CsContextMixin<CsOpenMpContext> {
   public:
+    // iter using a plain omp parallel for
     template <class F, class... Args>
-    auto iter_(cs_lnum_t n, F* f, Args&&... args) -> typename std::enable_if<F::is_host, bool>::type {
-#pragma omp parallel for
+    bool iter(cs_lnum_t n, F&& f, Args&&... args) {
+      #pragma omp parallel for
       for (cs_lnum_t i = 0; i < n; ++i) {
-        (*f)(i, static_cast<Args&&>(args)...);
+        f(i, args...);
       }
       return true;
     }
-    bool iter_(cs_lnum_t n, void*, ...) {
-      return false;
-    }
 
+    // iter over the internal faces of a mesh using a specific numerotation that avoids conflicts between threads
     template <class F, class... Args>
-    auto iter_i_faces_(const cs_mesh_t* m, F* f, Args&&... args) -> typename std::enable_if<F::is_host, bool>::type {
+    bool iter_i_faces(const cs_mesh_t* m, F&& f, Args&&... args) {
       const int n_i_groups                    = m->i_face_numbering->n_groups;
       const int n_i_threads                   = m->i_face_numbering->n_threads;
       const cs_lnum_t *restrict i_group_index = m->i_face_numbering->group_index;
 
-      const cs_lnum_2_t *restrict i_face_cells
-        = (const cs_lnum_2_t *restrict)m->i_face_cells;
-      const cs_lnum_t *restrict b_face_cells
-        = (const cs_lnum_t *restrict)m->b_face_cells;
-
       for (int g_id = 0; g_id < n_i_groups; g_id++) {
-
-      #pragma omp parallel for
+        #pragma omp parallel for
         for (int t_id = 0; t_id < n_i_threads; t_id++) {
           for (cs_lnum_t f_id = i_group_index[(t_id * n_i_groups + g_id) * 2];
                 f_id < i_group_index[(t_id * n_i_groups + g_id) * 2 + 1];
                 f_id++) {
-            (*f)(f_id, static_cast<Args&&>(args)...);
+            f(f_id, args...);
           }
         }
       }
 
       return true;
     }
-    bool iter_i_faces_(const cs_mesh_t*, void*, ...) {
-      return false;
-    }
 };
 
 #ifdef __NVCC__
+// Default kernel that iterate over an integer range and calls a device functor.
+// This kernel uses a grid-stride loop and thus guarantees that all integers are processed, even if the grid is smaller.
+// All arguments *must* be passed by value to avoid passing CPU references to the GPU.
 template <class F, class... Args>
 __global__ void cuda_kernel_iter_n(cs_lnum_t n, F f, Args... args) {
   // grid-stride loop
@@ -238,6 +162,10 @@ __global__ void cuda_kernel_iter_n(cs_lnum_t n, F f, Args... args) {
     f(id, args...);
   }
 }
+
+/**
+ * CsContext to execute loops with Cuda on the GPU
+ */
 class CsCudaContext : public CsContextMixin<CsCudaContext> {
   private:
     long grid;
@@ -254,15 +182,20 @@ class CsCudaContext : public CsContextMixin<CsCudaContext> {
       cudaGetDevice(&device);
     }
 
+    // Change grid configuration, but keeps the stream and device
     void set_cuda_config(long grid, long block) {
       this->grid = grid;
       this->block = block;
     }
+
+    // Change grid configuration and stream, but keeps the device
     void set_cuda_config(long grid, long block, cudaStream_t stream) {
       this->grid = grid;
       this->block = block;
       this->stream = stream;
     }
+
+    // Change grid configuration, stream and device
     void set_cuda_config(long grid, long block, cudaStream_t stream, int device) {
       this->grid = grid;
       this->block = block;
@@ -270,19 +203,21 @@ class CsCudaContext : public CsContextMixin<CsCudaContext> {
       this->device = device;
     }
   public:
+    // Try to iterate on the GPU and return false if the GPU is not available
     template <class F, class... Args>
-    auto iter_(cs_lnum_t n, F* f, Args&&... args) -> typename std::enable_if<F::is_device, bool>::type {
+    bool iter(cs_lnum_t n, F&& f, Args&&... args) {
       if (device < 0) {
         return false;
       }
-      cuda_kernel_iter_n<<<grid, block, 0, stream>>>(n, std::move(*f), static_cast<Args&&>(args)...);
-    }
-    bool iter_(cs_lnum_t n, void*, ...) {
-      return false;
+      cuda_kernel_iter_n<<<grid, block, 0, stream>>>(n, static_cast<F&&>(f), static_cast<Args&&>(args)...);
     }
 };
 #endif
 
+/**
+ * CsContext that is a combination of multiple contexts.
+ * This context will try every context in order, until one actually succeed to execute.
+ */
 template <class... Contexts>
 class CsCombinedContext : public CsContextMixin<CsCombinedContext<Contexts...>>, public Contexts... {
   private:
@@ -291,41 +226,43 @@ class CsCombinedContext : public CsContextMixin<CsCombinedContext<Contexts...>>,
     CsCombinedContext() = default;
     CsCombinedContext(Contexts... contexts) : Contexts(std::move(contexts))... {}
   public:
-    using mixin_t::iter_i_faces;
-    using mixin_t::iter_b_faces;
-    using mixin_t::iter_cells;
-    using mixin_t::iter;
-
     template <class F, class... Args>
-    void iter_i_faces_(const cs_mesh_t* m, F* f, Args&&... args) {
+    void iter_i_faces(const cs_mesh_t* m, F&& f, Args&&... args) {
       bool executed = false;
       decltype(nullptr) try_execute[] = {
         (executed = executed || Contexts::iter_i_faces(m, f, args...), nullptr)...
       };
+      // TODO: raise an error if all contexts return false
     }
     template <class F, class... Args>
-    auto iter_b_faces_(const cs_mesh_t* m, F* f, Args&&... args) {
+    auto iter_b_faces(const cs_mesh_t* m, F&& f, Args&&... args) {
       bool executed = false;
       decltype(nullptr) try_execute[] = {
         (executed = executed || Contexts::iter_b_faces(m, f, args...), nullptr)...
       };
+      // TODO: raise an error if all contexts return false
     }
     template <class F, class... Args>
-    auto iter_cells_(const cs_mesh_t* m, F* f, Args&&... args) {
+    auto iter_cells_(const cs_mesh_t* m, F&& f, Args&&... args) {
       bool executed = false;
       decltype(nullptr) try_execute[] = {
-        (executed = executed || Contexts::iter_cells_(m, f, args...), nullptr)...
+        (executed = executed || Contexts::iter_cells(m, f, args...), nullptr)...
       };
+      // TODO: raise an error if all contexts return false
     }
     template <class F, class... Args>
-    auto iter_(cs_lnum_t n, F* f, Args&&... args) {
+    auto iter_(cs_lnum_t n, F&& f, Args&&... args) {
       bool executed = false;
       decltype(nullptr) try_execute[] = {
-        (executed = executed || Contexts::iter_(n, f, args...), nullptr)...
+        (executed = executed || Contexts::iter(n, f, args...), nullptr)...
       };
+      // TODO: raise an error if all contexts return false
     }
 };
 
+/**
+ * Default CsContext that is a combination of OpenMP (CPU) and CUDA if available
+ */
 class CsContext : public CsCombinedContext<
 #ifdef __NVCC__
   CsCudaContext,
@@ -351,23 +288,6 @@ class CsContext : public CsCombinedContext<
 /*=============================================================================
  * Public function prototypes
  *============================================================================*/
-
-
-
-template <class F>
-CS_CUDA_HOST HostFunctor<F> cs_host_functor(F f) noexcept(noexcept(F(std::move(f)))) {
-  return HostFunctor<F>(std::move(f));
-}
-
-template <class F>
-CS_CUDA_HOST_DEVICE DeviceFunctor<F> cs_device_functor(F f) noexcept(noexcept(F(std::move(f)))) {
-  return DeviceFunctor<F>(std::move(f));
-}
-
-template <class F>
-CS_CUDA_HOST_DEVICE HostDeviceFunctor<F> cs_host_device_functor(F f) noexcept(noexcept(F(std::move(f)))) {
-  return HostDeviceFunctor<F>(std::move(f));
-}
 
 
 
